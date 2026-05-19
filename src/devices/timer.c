@@ -7,6 +7,7 @@
 #include "threads/interrupt.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
+#include "lib/kernel/list.h"
   
 /* See [8254] for hardware details of the 8254 timer chip. */
 
@@ -30,6 +31,9 @@ static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
 static void real_time_delay (int64_t num, int32_t denom);
 
+//declarando uma lista global que irá armazenar as threads em sleep.
+static struct list sleep_list;
+
 /* Sets up the timer to interrupt TIMER_FREQ times per second,
    and registers the corresponding interrupt. */
 void
@@ -37,6 +41,9 @@ timer_init (void)
 {
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
+
+  //inicializando a lista global
+  list_init(&sleep_list); 
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
@@ -91,9 +98,24 @@ timer_sleep (int64_t ticks)
 {
   int64_t start = timer_ticks ();
 
+  //versao anterior: busy wait
   ASSERT (intr_get_level () == INTR_ON);
-  while (timer_elapsed (start) < ticks) 
-    thread_yield ();
+  //while (timer_elapsed (start) < ticks) 
+  //   thread_yield ();
+
+  //versao nova
+  //salvando wakeuptick na thread atual
+  thread_current()->wakeup_tick = start + ticks;
+
+  enum intr_level old_level = intr_disable(); //desligando as interrup do sistema. thread_block precisa q nao ocorra interrupcoes
+  
+  // adicionando o caminho da thread na lista de sleep 
+  list_push_back(&sleep_list, &thread_current()->elem);
+  
+  //por fim, bloqueamos a thread
+  thread_block(); //bloqueia
+  
+  intr_set_level(old_level); //restaura e permite interrupcoes 
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -170,8 +192,25 @@ timer_print_stats (void)
 static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
+  //versao antiga
   ticks++;
   thread_tick ();
+
+  //nova
+  //usando list.h
+  struct list_elem *th = list_begin(&sleep_list);
+  while (th != list_end(&sleep_list)) {
+    struct thread *t = list_entry(th, struct thread, elem);
+    if (ticks >= t->wakeup_tick) {
+      struct list_elem *next = list_next(th);
+      list_remove(th);
+      thread_unblock(t);
+      th = next;
+    } else {
+      th = list_next(th);
+    }
+  }
+
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
