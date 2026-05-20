@@ -101,7 +101,10 @@ sub parse_command_line {
 	  or exit 1;
     }
 
-    $sim = "bochs" if !defined $sim;
+    # Bloco comentado para poder rodar no MacOS Apple Silicon
+    #$sim = "bochs" if !defined $sim;
+    # Parte adicionada para MacOS Apple Silicon
+    $sim = "qemu" if ! defined $sim;
     $debug = "none" if !defined $debug;
     $vga = exists ($ENV{DISPLAY}) ? "window" : "none" if !defined $vga;
 

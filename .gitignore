@@ -34,3 +34,6 @@ cscope.files
 cscope.out
 TAGS
 tags
+
+# Arquivos de sistema do macOS
+**/.DS_Store
