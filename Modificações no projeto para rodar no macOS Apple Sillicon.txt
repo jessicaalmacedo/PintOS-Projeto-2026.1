@@ -1,15 +1,6 @@
-# -*- makefile -*-
+src/Make.config
 
-SHELL = /bin/sh
-
-VPATH = $(SRCDIR)
-
-# Binary utilities.
-# If the host appears to be x86, use the normal tools.
-# If it's x86-64, use the compiler and linker in 32-bit mode.
-# Otherwise assume cross-tools are installed as i386-elf-*.
-X86 = i.86\|pentium.*\|[pk][56]\|nexgen\|viac3\|6x86\|athlon.*\|i86pc
-X86_64 = x86_64
+linha 14
 
 # Pintos doesn't compile/run properly using gcc 4.3+. Force 4.1 for now.
 
@@ -42,9 +33,8 @@ CC = x86_64-elf-gcc
 LD = x86_64-elf-ld
 OBJCOPY = x86_64-elf-objcopy
 
-ifeq ($(strip $(shell command -v $(CC) 2> /dev/null)),)
-$(warning *** Compiler ($(CC)) not found.  Did you set $$PATH properly?  Please refer to the Getting Started section in the documentation for details. ***)
-endif
+
+linha 53
 
 # Compiler and assembler invocation.
 DEFINES =
@@ -66,18 +56,29 @@ ASFLAGS = -Wa,--gstabs -m32
 LDFLAGS = -m elf_i386 -z noseparate-code
 DEPS = -MMD -MF $(@:.o=.d)
 
-# Turn off -fstack-protector, which we don't support.
-ifeq ($(strip $(shell echo | $(CC) -fno-stack-protector -E - > /dev/null 2>&1; echo $$?)),0)
-CFLAGS += -fno-stack-protector
-endif
+scr/utils/pintos
 
-# Turn off --build-id in the linker, which confuses the Pintos loader.
-ifeq ($(strip $(shell $(LD) --help | grep -q build-id; echo $$?)),0)
-LDFLAGS += -Wl,--build-id=none
-endif
+linha 103
 
-%.o: %.c
-	$(CC) -c $< -o $@ $(CFLAGS) $(CPPFLAGS) $(WARNINGS) $(DEFINES) $(DEPS)
+# Bloco comentado para poder rodar no MacOS Apple Silicon
+#$sim = "bochs" if !defined $sim;
+# Parte adicionada para MacOS Apple Silicon
+$sim = "qemu" if ! defined $sim;
 
-%.o: %.S
-	$(CC) -c $< -o $@ $(ASFLAGS) $(CPPFLAGS) $(DEFINES) $(DEPS)
+
+src/threads/build/Makefile
+
+linha 91
+
+loader.bin: threads/loader.o
+	# Bloco comentado para poder rodar no MacOS Apple Silicon
+	$(LD) -N -e 0 -Ttext 0x7c00 --oformat binary -o $@ $<
+	# adicionado pq no arch linux por algum motivo o loader.bin virar um 
+	# gigantesco arquivo com apenas 0 e deveria ter apenas 512 byes
+	#dd if=loader.bin of=loader_.bin bs=512 count=1
+	#rm loader.bin
+	#mv loader_.bin loader.bin
+
+	# Parte adicionada para MacOS Apple Silicon
+	$(LD) -m elf_i386 -N -e 0 -Ttext 0x7c00 --oformat binary -o $@ $<
+

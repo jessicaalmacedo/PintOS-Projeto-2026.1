@@ -72,6 +72,14 @@ static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 
+/* Compara a prioridade de duas threads */
+/* Retorna true se a prioridade da thread A for MAIOR que a de B. */
+bool
+thread_cmp_priority (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
+{
+  return list_entry (a, struct thread, elem)->priority > list_entry (b, struct thread, elem)->priority;
+}
+
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
    general and it is possible in this case only because loader.S
@@ -238,7 +246,11 @@ thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-  list_push_back (&ready_list, &t->elem);
+ /* Removido para inserir ordenadamente pela prioridade
+  list_push_back (&ready_list, &t->elem); */
+
+  /* Insere a thread na lista de prontos de forma ORDENADA */
+  list_insert_ordered (&ready_list, &t->elem, thread_cmp_priority, NULL);
   t->status = THREAD_READY;
   intr_set_level (old_level);
 }
