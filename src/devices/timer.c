@@ -232,6 +232,34 @@ timer_interrupt (struct intr_frame *args UNUSED)
   } 
   */
 
+  /* Para garantir que ocorra sincronia de prioridade juntamente com a justiça na fila entre as threads ativas 
+     fazendo com que a thread de maior prioridade seja escolhida para rodar evitando que as threads de menor prioridade
+     sejam acordadas e rodem */
+
+  /* Lógica do MLFQS --- */
+  
+  if (thread_mlfqs) 
+  {
+      /* A cada tick (10 ms): Incrementa o contador de uso de CPU (recent_cpu)
+         da thread que está rodando atualmente (desde que não seja a idle). */
+      thread_mlfqs_increase_recent_cpu ();
+
+      /* A cada 4 ticks (40 ms): Recalcula a prioridade dinâmica de todas as threads.
+         Ticks são unidades lógicas via software (1 tick = 10ms), não ciclos de clock. */
+      if (ticks % 4 == 0)
+      {
+          thread_mlfqs_update_all_priorities ();
+      }
+
+      /* A cada 1 segundo (100 ticks) / TIMER_FREQ): Atualiza a carga média global (load_avg)
+         e aplica a taxa de decaimento/amortecimento no recent_cpu de todo o sistema. */
+      if (ticks % TIMER_FREQ == 0)
+      {
+          thread_mlfqs_update_load_avg ();
+          thread_mlfqs_update_all_recent_cpu ();
+      }
+  }
+
   /* Flag para monitorar se alguma thread saiu do estado de bloqueio.
      Inicia em 'false' para evitar preempções desnecessárias. */
 

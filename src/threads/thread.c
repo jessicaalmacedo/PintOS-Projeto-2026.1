@@ -15,6 +15,9 @@
 #include "userprog/process.h"
 #endif
 
+/*  para usar o tipo float */
+#include "threads/float.h"
+
 /* Random value for struct thread's `magic' member.
    Used to detect stack overflow.  See the big comment at the top
    of thread.h for details. */
@@ -37,6 +40,9 @@ static struct thread *initial_thread;
 
 /* Lock used by allocate_tid(). */
 static struct lock tid_lock;
+
+/* Tipo Ponto Fixo */
+static float_type load_avg;
 
 /* Stack frame for kernel_thread(). */
 struct kernel_thread_frame 
@@ -118,6 +124,9 @@ thread_start (void)
   struct semaphore idle_started;
   sema_init (&idle_started, 0);
   thread_create ("idle", PRI_MIN, idle, &idle_started);
+
+  /* Inicializa load_avg */
+  load_avg = FLOAT_CONST (0);
 
   /* Start preemptive thread scheduling. */
   intr_enable ();
@@ -359,34 +368,41 @@ thread_get_priority (void)
 }
 
 /* Sets the current thread's nice value to NICE. */
+/* Atualiza o nice e recalcula prioridade imediatamente (Preempção) */
 void
 thread_set_nice (int nice UNUSED) 
 {
-  /* Not yet implemented. */
+  thread_current ()->nice = nice;
+  
+  if (thread_mlfqs)
+    {
+      thread_mlfqs_update_priority (thread_current ());
+    }
 }
 
 /* Returns the current thread's nice value. */
+/* Retorna o nice da thread atual */
 int
 thread_get_nice (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  return thread_current ()->nice;
 }
 
 /* Returns 100 times the system load average. */
+/* Retorna o load_avg multiplicado por 100 e arredondado para inteiro */
 int
 thread_get_load_avg (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  /* Converte Ponto Fixo para Inteiro arredondado e multiplica por 100 */
+  return FLOAT_ROUND (FLOAT_MULT_MIX (load_avg, 100));
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
+/* Retorna o recent_cpu da thread atual multiplicado por 100 e arredondado para inteiro */
 int
 thread_get_recent_cpu (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  return FLOAT_ROUND (FLOAT_MULT_MIX (thread_current ()->recent_cpu, 100));
 }
 
 /* Idle thread.  Executes when no other thread is ready to run.
@@ -480,6 +496,19 @@ init_thread (struct thread *t, const char *name, int priority)
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
   intr_set_level (old_level);
+
+  /* Inicializa valores de MLFQS */
+  /* Se for a primeira thread (initial_thread), zera; senão herda do pai. */
+  if (t == initial_thread)
+    {
+      t->nice = 0;
+      t->recent_cpu = FLOAT_CONST (0);
+    }
+  else
+    {
+      t->nice = thread_current ()->nice;
+      t->recent_cpu = thread_current ()->recent_cpu;
+    }
 }
 
 /* Allocates a SIZE-byte frame at the top of thread T's stack and
@@ -600,3 +629,150 @@ allocate_tid (void)
 /* Offset of `stack' member within `struct thread'.
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);
+
+/* Funções do MLFQS */
+
+/* Registra o tempo que a thread passou rodando na CPU, incrementando seu recent_cpu a cada tick
+   Aumenta o recent_cpu da thread atual em 1 (chamado a cada tick) */
+void
+thread_mlfqs_increase_recent_cpu (void)
+{ 
+  /* Garante de forma segura que o modo MLFQS está realmente ativo */
+  ASSERT (thread_mlfqs);
+  
+  struct thread *cur = running_thread ();
+  
+  if (cur != idle_thread)
+    {
+      cur->recent_cpu = FLOAT_ADD_MIX (cur->recent_cpu, 1);
+    }
+}
+
+/* Calcula o congestionamento ou carga média do sistema (load_avg) a cada 1 segundo 
+   para verificar o total de threads que estão disputando pela CPU e se o sistema está sobrecarregado
+   Fórmula: load_avg = (59/60)*load_avg + (1/60)*ready_threads (Pesos que evitam mudanças bruscas de contexto) */
+void
+thread_mlfqs_update_load_avg (void)
+{ 
+  /* Garante de forma segura que o modo MLFQS está realmente ativo */
+  ASSERT (thread_mlfqs);
+
+  /* Conta threads prontas mais a que está rodando (exceto idle) */
+  int ready_threads = list_size (&ready_list);
+  
+  if (running_thread () != idle_thread)
+    ready_threads++;
+
+  /* As frações que servem de pesos na equação do load_avg */
+  float_type f59_60 = FLOAT_DIV_MIX (FLOAT_CONST (59), 60);
+  float_type f1_60  = FLOAT_DIV_MIX (FLOAT_CONST (1), 60);
+
+/* Calcula os dois termos (partes) da fórmula antes de somar */
+  float_type termo1 = FLOAT_MULT (f59_60, load_avg);
+  float_type termo2 = FLOAT_MULT_MIX (f1_60, ready_threads);
+
+  load_avg = FLOAT_ADD (termo1, termo2);
+}
+
+/* Atualiza o histórico de uso de CPU (recent_cpu) de UMA thread específica a cada 1 segundo.
+   Esse valor atualizado é essencial para que o sistema recalcule a prioridade da thread logo em seguida. 
+   Fórmula: recent_cpu = (2*load_avg)/(2*load_avg + 1) * recent_cpu + nice */
+void
+thread_mlfqs_update_recent_cpu (struct thread *t)
+{ 
+  /* Garante de forma segura que o modo MLFQS está realmente ativo */
+  ASSERT (thread_mlfqs);
+
+  if (t == idle_thread) return;
+
+  float_type double_load = FLOAT_MULT_MIX (load_avg, 2);
+  float_type divisor     = FLOAT_ADD_MIX (double_load, 1);
+  float_type coefficient = FLOAT_DIV (double_load, divisor);
+
+  /* Calcula a primeira parte da fórmula aplicando a taxa de amortecimento */
+  float_type termo1 = FLOAT_MULT (coefficient, t->recent_cpu);
+  
+  /* Soma o valor de nice para definir o novo valor de recent_cpu */
+  t->recent_cpu = FLOAT_ADD_MIX (termo1, t->nice);
+}
+
+/* Gerencia todas as threads do sistema solicitando a atualização do 
+   recent_cpu de cada uma para que futuramente o SO possa refazer o cálculo de prioridade. */
+void
+thread_mlfqs_update_all_recent_cpu (void)
+{
+  /* Garante de forma segura que o modo MLFQS está realmente ativo */
+  ASSERT (thread_mlfqs);
+  struct list_elem *e;
+
+  /* Varre todas as threads do sistema e atualiza o recent_cpu de cada uma */
+  for (e = list_begin (&all_list); e != list_end (&all_list); e = list_next (e))
+    {
+      struct thread *t = list_entry (e, struct thread, allelem);
+      thread_mlfqs_update_recent_cpu (t);
+    }
+}
+
+
+/* Recalcula a prioridade de uma thread específica com base no seu uso de CPU e nível de nice,
+   para evita que ela passe muito tempo consumindo a CPU sozinha. */
+/* Fórmula: priority = PRI_MAX - (recent_cpu / 4) - (nice * 2) */
+void
+thread_mlfqs_update_priority (struct thread *t)
+{
+  ASSERT (thread_mlfqs);
+  if (t == idle_thread){
+    return;
+  }
+
+  /* Divide o histórico de CPU por 4 (quanto maior o uso, menor a prioridade) */
+  float_type termo1 = FLOAT_DIV_MIX (t->recent_cpu, 4);
+
+  /* Valores maiores reduzem a prioridade da thread */
+  float_type termo2 = FLOAT_CONST (t->nice * 2);
+  
+  float_type priority_fp = FLOAT_SUB (FLOAT_SUB (FLOAT_CONST (PRI_MAX), termo1), termo2);
+
+  /* Converte o resultado de ponto fixo para número inteiro */
+  t->priority = FLOAT_INT_PART (priority_fp);
+
+  /* Garante por segurança que a prioridade fique entre os limites definidos */
+  if (t->priority < PRI_MIN) t->priority = PRI_MIN;
+  if (t->priority > PRI_MAX) t->priority = PRI_MAX;
+}
+
+/* Percorre TODAS as threads para atualizar prioridade */
+/* Faz o cálculo da função anterior (recent_cpu + nice) de forma geral em todas as threads, 
+   reordenando a fila e aplicando a preempção se alguém tiver maior prioridade que a thread atual. */
+void
+thread_mlfqs_update_all_priorities (void)
+{
+  /* Garante de forma segura que o modo MLFQS está realmente ativo */
+  ASSERT (thread_mlfqs);
+  struct list_elem *e;
+
+  /* Varre todas as threads do sistema e atualiza o recent_cpu de cada uma */
+  for (e = list_begin (&all_list); e != list_end (&all_list); e = list_next (e))
+    {
+      struct thread *t = list_entry (e, struct thread, allelem);
+      thread_mlfqs_update_priority (t);
+    }
+
+  /* Reordenar a ready_list após atualizações de prioridade */
+  list_sort(&ready_list, thread_cmp_priority, NULL);
+
+  /* Preempção: se houver uma thread pronta com prioridade maior, cause yield (Preempção) */
+  if (!list_empty(&ready_list))
+    {
+      struct thread *highest = list_entry(list_front(&ready_list), struct thread, elem);
+      if (highest->priority > thread_current()->priority)
+        {
+          if (intr_context())
+            intr_yield_on_return();
+          else
+            thread_yield();
+        }
+    }
+}
+
+/* Final do MLFQS */

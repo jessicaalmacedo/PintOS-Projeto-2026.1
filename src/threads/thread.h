@@ -5,6 +5,9 @@
 #include <list.h>
 #include <stdint.h>
 
+/* Acidionado para usar o tipo float */
+#include "threads/float.h"
+
 /* States in a thread's life cycle. */
 enum thread_status
   {
@@ -89,7 +92,10 @@ struct thread
     uint8_t *stack;                     /* Saved stack pointer. */
     int priority;                       /* Priority. */
     struct list_elem allelem;           /* List element for all threads list. */
+
     int64_t wakeup_tick; // adiçao start + ticks para saber a hora que acordar a thread
+    int nice;                          /* Valor nice para MLFQS */
+    float_type recent_cpu;             /* Recente CPU time para MLFQS */
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
@@ -138,5 +144,14 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+
+/* Funções do MLFQS */
+
+void thread_mlfqs_increase_recent_cpu (void);
+void thread_mlfqs_update_load_avg (void);
+void thread_mlfqs_update_all_recent_cpu (void);
+void thread_mlfqs_update_priority (struct thread *t);
+void thread_mlfqs_update_all_priorities (void);
+void thread_mlfqs_update_recent_cpu (struct thread *t);
 
 #endif /* threads/thread.h */
