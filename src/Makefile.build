@@ -89,7 +89,7 @@ threads/loader.o: threads/loader.S
 	$(CC) -c $< -o $@ $(ASFLAGS) $(CPPFLAGS) $(DEFINES)
 
 loader.bin: threads/loader.o
-	$(LD) -N -e 0 -Ttext 0x7c00 --oformat binary -o $@ $<
+	$(LD) -m elf_i386 -N -e 0 -Ttext 0x7c00 --oformat binary -o $@ $<
 	# adicionado pq no arch linux por algum motivo o loader.bin virar um 
 	# gigantesco arquivo com apenas 0 e deveria ter apenas 512 byes
 	dd if=loader.bin of=loader_.bin bs=512 count=1
