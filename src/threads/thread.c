@@ -261,7 +261,19 @@ thread_unblock (struct thread *t)
   /* Insere a thread na lista de prontos de forma ORDENADA */
   list_insert_ordered (&ready_list, &t->elem, thread_cmp_priority, NULL);
   t->status = THREAD_READY;
-  intr_set_level (old_level);
+    intr_set_level (old_level); //volta pro lev normal
+
+  struct thread *head = list_entry(list_front(&ready_list), struct thread, elem); // thread com prioridade MAX
+  if (idle_thread != NULL && intr_get_level() == INTR_ON && head->priority > thread_current()->priority) { // compara PRIORIDADE, nao nice! {
+    if (intr_context()) { //estamos em contexto de interrupcao!!!!!
+      intr_yield_on_return(); // agenda yield depois da interrupcao, mais seguro!!!
+    } else { //naotem interrup!
+      thread_yield(); //chamou direto
+    }
+  }
+
+
+
 }
 
 /* Returns the name of the running thread. */
@@ -330,7 +342,8 @@ thread_yield (void)
 
   old_level = intr_disable ();
   if (cur != idle_thread) 
-    list_push_back (&ready_list, &cur->elem);
+    // list_push_back (&ready_list, &cur->elem); antes estava assim, mas aí não entrava ordenadamente. aqui era provocado um dos erros em nice_2
+    list_insert_ordered(&ready_list, &cur->elem, thread_cmp_priority, NULL);
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
@@ -374,10 +387,18 @@ thread_set_nice (int nice UNUSED)
 {
   thread_current ()->nice = nice;
   
-  if (thread_mlfqs)
-    {
+  if (thread_mlfqs) {
       thread_mlfqs_update_priority (thread_current ());
-    }
+  }
+
+  if (!list_empty(&ready_list)) {
+    struct thread *head = list_entry(list_front(&ready_list), struct thread, elem);
+    if (head->priority > thread_current()->priority) { // compara PRIORIDADE, nao nice! {
+      thread_yield();
+    } // a propria thread chamou o set nice, entao podemos chamar yield sem medo pois estamos fora de interrupcao.
+  }
+  
+  
 }
 
 /* Returns the current thread's nice value. */
