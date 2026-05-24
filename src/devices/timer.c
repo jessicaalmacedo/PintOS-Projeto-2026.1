@@ -244,13 +244,7 @@ timer_interrupt (struct intr_frame *args UNUSED)
          da thread que está rodando atualmente (desde que não seja a idle). */
       thread_mlfqs_increase_recent_cpu ();
 
-      /* A cada 4 ticks (40 ms): Recalcula a prioridade dinâmica de todas as threads.
-         Ticks são unidades lógicas via software (1 tick = 10ms), não ciclos de clock. */
-      if (ticks % 4 == 0)
-      {
-          thread_mlfqs_update_all_priorities ();
-      }
-
+      //ordem dos ifs trocada
       /* A cada 1 segundo (100 ticks) / TIMER_FREQ): Atualiza a carga média global (load_avg)
          e aplica a taxa de decaimento/amortecimento no recent_cpu de todo o sistema. */
       if (ticks % TIMER_FREQ == 0)
@@ -258,6 +252,14 @@ timer_interrupt (struct intr_frame *args UNUSED)
           thread_mlfqs_update_load_avg ();
           thread_mlfqs_update_all_recent_cpu ();
       }
+
+      /* A cada 4 ticks (40 ms): Recalcula a prioridade dinâmica de todas as threads.
+         Ticks são unidades lógicas via software (1 tick = 10ms), não ciclos de clock. */
+      if (ticks % 4 == 0)
+      {
+          thread_mlfqs_update_all_priorities ();
+      }
+
   }
 
   /* Flag para monitorar se alguma thread saiu do estado de bloqueio.
