@@ -154,4 +154,7 @@ void thread_mlfqs_update_priority (struct thread *t);
 void thread_mlfqs_update_all_priorities (void);
 void thread_mlfqs_update_recent_cpu (struct thread *t);
 
+void thread_check_preemption (void);
+bool thread_cmp_priority (const struct list_elem *a, const struct list_elem *b, void *aux);
+
 #endif /* threads/thread.h */

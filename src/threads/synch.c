@@ -68,7 +68,10 @@ sema_down (struct semaphore *sema)
   old_level = intr_disable ();
   while (sema->value == 0) 
     {
-      list_push_back (&sema->waiters, &thread_current ()->elem);
+      //antes 
+      // list_push_back (&sema->waiters, &thread_current ()->elem);
+      //a primeira da fila é a que tem maior prioridade
+      list_insert_ordered (&sema->waiters, &thread_current ()->elem, thread_cmp_priority, NULL);
       thread_block ();
     }
   sema->value--;
@@ -118,6 +121,9 @@ sema_up (struct semaphore *sema)
                                 struct thread, elem));
   sema->value++;
   intr_set_level (old_level);
+
+  //ve se a thread que acordou tem que executar no lugar da atual
+  thread_check_preemption ();
 }
 
 static void sema_test_helper (void *sema_);
@@ -264,6 +270,19 @@ cond_init (struct condition *cond)
   list_init (&cond->waiters);
 }
 
+//compara as threads de maior prioridade que estao esperando no semáforo
+static bool
+cond_sema_cmp_priority (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
+{
+  struct semaphore_elem *sa = list_entry (a, struct semaphore_elem, elem);
+  struct semaphore_elem *sb = list_entry (b, struct semaphore_elem, elem);
+  
+  struct thread *ta = list_entry (list_front (&sa->semaphore.waiters), struct thread, elem);
+  struct thread *tb = list_entry (list_front (&sb->semaphore.waiters), struct thread, elem);
+  
+  return ta->priority > tb->priority;
+}
+
 /* Atomically releases LOCK and waits for COND to be signaled by
    some other piece of code.  After COND is signaled, LOCK is
    reacquired before returning.  LOCK must be held before calling
@@ -295,7 +314,7 @@ cond_wait (struct condition *cond, struct lock *lock)
   ASSERT (lock_held_by_current_thread (lock));
   
   sema_init (&waiter.semaphore, 0);
-  list_push_back (&cond->waiters, &waiter.elem);
+  list_insert_ordered (&cond->waiters, &waiter.elem, cond_sema_cmp_priority, NULL); //insere os elementos ordenados pela prioridade
   lock_release (lock);
   sema_down (&waiter.semaphore);
   lock_acquire (lock);
@@ -316,9 +335,11 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED)
   ASSERT (!intr_context ());
   ASSERT (lock_held_by_current_thread (lock));
 
-  if (!list_empty (&cond->waiters)) 
+  if (!list_empty (&cond->waiters)) {
+    list_sort (&cond->waiters, cond_sema_cmp_priority, NULL); //ordena a lista pra garantir
     sema_up (&list_entry (list_pop_front (&cond->waiters),
                           struct semaphore_elem, elem)->semaphore);
+  }
 }
 
 /* Wakes up all threads, if any, waiting on COND (protected by

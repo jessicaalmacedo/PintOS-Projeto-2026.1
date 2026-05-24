@@ -263,14 +263,15 @@ thread_unblock (struct thread *t)
   t->status = THREAD_READY;
     intr_set_level (old_level); //volta pro lev normal
 
-  struct thread *head = list_entry(list_front(&ready_list), struct thread, elem); // thread com prioridade MAX
-  if (idle_thread != NULL && intr_get_level() == INTR_ON && head->priority > thread_current()->priority) { // compara PRIORIDADE, nao nice! {
-    if (intr_context()) { //estamos em contexto de interrupcao!!!!!
-      intr_yield_on_return(); // agenda yield depois da interrupcao, mais seguro!!!
-    } else { //naotem interrup!
-      thread_yield(); //chamou direto
-    }
-  }
+    //antes funcionando o nice2
+  // struct thread *head = list_entry(list_front(&ready_list), struct thread, elem); // thread com prioridade MAX
+  // if (idle_thread != NULL && intr_get_level() == INTR_ON && head->priority > thread_current()->priority) { // compara PRIORIDADE, nao nice! {
+  //   if (intr_context()) { //estamos em contexto de interrupcao!!!!!
+  //     intr_yield_on_return(); // agenda yield depois da interrupcao, mais seguro!!!
+  //   } else { //naotem interrup!
+  //     thread_yield(); //chamou direto
+  //   }
+  // }
 
 
 
@@ -731,6 +732,7 @@ thread_mlfqs_update_all_recent_cpu (void)
     {
       struct thread *t = list_entry (e, struct thread, allelem);
       thread_mlfqs_update_recent_cpu (t);
+      thread_mlfqs_update_priority (t); //pra atualizar a prioridade quando mudar o recent_cpu
     }
 }
 
@@ -792,6 +794,23 @@ thread_mlfqs_update_all_priorities (void)
             intr_yield_on_return();
           else
             thread_yield();
+        }
+    }
+}
+
+//verifica se a thread atual vai ceder a cpu pra outra thread com maior prioridade sem ser por causa do timer
+void
+thread_check_preemption (void)
+{
+  if (!list_empty (&ready_list))
+    {
+      struct thread *highest = list_entry (list_front (&ready_list), struct thread, elem);
+      if (highest->priority > thread_current ()->priority)
+        {
+          if (intr_context ())
+            intr_yield_on_return ();
+          else
+            thread_yield ();
         }
     }
 }
